@@ -1,0 +1,5 @@
+# mu 2.0, e = 2.4, C = 2
+# lambda EnergyStorageProbability
+0.4 1.7430/2.0
+0.8 1.4429/2
+

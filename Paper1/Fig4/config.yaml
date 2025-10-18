@@ -1,0 +1,49 @@
+figure:
+  paper: "Paper1"
+  id: "Fig4"
+  title: "Average number of DPs vs λ (μ=3, e=2.4)"
+  x_var: "lambda"
+  y_metric: "L"
+  ylabel: "Average number of DPs (L_D)"
+  xlabel: "λ"
+  legend: true
+  save_as: "fig4.png"
+  aggregate_runs: 1
+  stability_guard: true
+
+  # 畫各曲線的鉛直漸進線（以穩定邊界為準）
+  asymptote:
+    draw: true
+    mode: "auto_stability"
+
+  # 共同自動掃點設定：從共同起點 → 各自漸進線，並做二分加密到 1/16
+  auto_defaults:
+    approach: "left"      # 從左邊靠近
+    common_start: 0.4     # 全部曲線共同起點
+    step: 0.2             # 粗網格步距（會再加密）
+    clip_ratio: 0.995     # 最終停在 99.5% * λ_max
+    refine:
+      enabled: true
+      levels: 4           # d0/16
+
+sim:
+  exe: "../Projects/BaseStation/Win32/Debug/Project2.exe"
+  base_args:
+    T: 1000010
+    seed: 12345
+    N: 1
+    rtx: 1
+    slots: 0
+    alwaysCharge: true
+    version: "BaseStation"
+
+sweeps:
+  - label: "C=1"
+    fixed: { mu: 3.0, e: 2.4, C: 1 }
+    x_auto: {}            # 用 figure 的 auto_defaults
+  - label: "C=5"
+    fixed: { mu: 3.0, e: 2.4, C: 5 }
+    x_auto: {}            # 同上
+  - label: "C=10"
+    fixed: { mu: 3.0, e: 2.4, C: 10 }
+    x_auto: {}            # 同上

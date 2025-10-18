@@ -1,0 +1,3 @@
+[Headless] start
+params: mu=1.5, e=2.4, C=100, lambda=1, T=10000, seed=56789, N=1, rtx=1, slots=0, alwaysCharge=1, out=D:\daniel\RA\Result\Paper1\Fig4\old\raw_runs.csv, version=BaseStation
+[Headless] done, rc=0

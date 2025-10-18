@@ -1,0 +1,42 @@
+Paper: "Paper1"
+Fig: "Fig7"
+
+# 預設參數（可被 Subplots[].Var 覆蓋）
+Fixed:
+  C: 2
+  T: 1000000
+  N: 1
+  rtx: 1
+  slots: 0
+  alwaysCharge: true
+  seeds: [12345, 23456, 34567, 45678, 56789]
+  exe_path: "/mnt/d/DANIEL/RA/Projects/BaseStation/Win32/Debug/Project2.exe"  # 也可改用環境變數
+
+# X 軸欄位名（目前支援 lambda）
+XAxis: "lambda"
+
+# Y 指標（avg_delay_ms / L / W / loss_rate / EP_mean）
+YMetric: "avg_delay_ms"
+
+# 子圖們：每個子圖可以覆寫 Var（例如 mu / e）
+Subplots:
+  - Var:
+      mu: 2.0
+      e: 2.4
+    X:
+      lambda: [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.5]
+    asymptotic: 1.3333   # 會畫一條垂直虛線
+
+  - Var:
+      mu: 3.0
+      e: 2.4
+    X:
+      lambda: [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.5, 1.6]
+    asymptotic: 1.66666666
+
+  - Var:
+      mu: 3.0
+      e: 4.0
+    X:
+      lambda: [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.25]
+    asymptotic: 2.4444
