@@ -1,0 +1,51 @@
+figure:
+  paper: "Paper1"
+  id: "Fig5"
+  title: "Average number of DPs vs λ (C=2)"
+  x_var: "lambda"
+  y_metric: "L"
+  ylabel: "Average number of DPs (L_D)"
+  xlabel: "λ"
+  legend: true
+  save_as: "fig5.png"
+  aggregate_runs: 1
+  stability_guard: true
+
+  # 畫出各曲線的穩定邊界（漸進線）
+  asymptote:
+    draw: true
+    mode: "auto_stability"   # 依各曲線 μ,e,C 自動算 λ_max
+
+  # 共同自動掃點設定：左邊共同起點 → 各自 λ_max 的 99.9% 處
+  auto_defaults:
+    approach: "left"
+    common_start: 0.4
+    step: 0.2
+    clip_ratio: 0.999        # 更貼近臨界；若太慢可調回 0.998
+    refine:
+      enabled: true
+      levels: 6              # d0/64，靠近臨界更密
+
+sim:
+  exe: "../Projects/BaseStation/Win32/Debug/Project2.exe"
+  base_args:
+    T: 1000010
+    seed: 12345
+    N: 1
+    rtx: 1
+    slots: 0
+    alwaysCharge: true
+    version: "BaseStation"
+
+sweeps:
+  - label: "μ=2, e=2.4"
+    fixed: { mu: 2.0, e: 2.4, C: 2 }
+    x_auto: {}   # 使用 figure.auto_defaults
+
+  - label: "μ=3, e=2.4"
+    fixed: { mu: 3.0, e: 2.4, C: 2 }
+    x_auto: {}
+
+  - label: "μ=3, e=4"
+    fixed: { mu: 3.0, e: 4.0, C: 2 }
+    x_auto: {}

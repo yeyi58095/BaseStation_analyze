@@ -1,0 +1,63 @@
+figure:
+  paper: "Paper1"
+  id: "Fig6"
+  title: "Average number of DPs vs μ (λ=0.9, C=2)"
+  x_var: "mu"
+  y_metric: "L"
+  ylabel: "Average number of DPs (L_D)"
+  xlabel: "μ"
+  legend: true
+  save_as: "fig6.png"
+  aggregate_runs: 1
+  stability_guard: false      # 只針對 x_var=lambda 會用到，這張不需要
+
+  # 右邊收斂：從各自漸進線右側 → 共同終點
+  auto_defaults:
+    approach: "right"
+    common_end: 3.5           # 共同終點（可改 4.0）
+    step: 0.2
+    clip_ratio: 0.995         # 右側：從 μ* 的 100.5% 左右起跑
+    refine:
+      enabled: true
+      levels: 6               # 二分加密到 d0/64
+
+  # 顯示垂直漸進線（這張圖 x 軸是 μ，所以改用固定 value）
+  asymptote:
+    draw: true
+    mode: "value"             # 每條曲線用各自的 μ*（在 sweeps 的 x_auto 裡給 value）
+
+sim:
+  exe: "../Projects/BaseStation/Win32/Debug/Project2.exe"
+  base_args:
+    T: 1000010
+    seed: 12345
+    N: 1
+    rtx: 1
+    slots: 0
+    alwaysCharge: true
+    version: "BaseStation"
+    lambda: 0.9
+    C: 2
+
+sweeps:
+  - label: "e=3"
+    fixed: { e: 3.0 }
+    x_auto:
+      # 這條曲線自己的漸進線（μ*）
+      asymptote:
+        mode: "value"
+        value: 0.9712634131
+
+  - label: "e=2"
+    fixed: { e: 2.0 }
+    x_auto:
+      asymptote:
+        mode: "value"
+        value: 1.0670576365
+
+  - label: "e=1.6"
+    fixed: { e: 1.6 }
+    x_auto:
+      asymptote:
+        mode: "value"
+        value: 1.1827830369

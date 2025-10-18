@@ -1,3 +1,3 @@
 [Headless] start
-params: mu=3, e=2.4, C=10, lambda=2.22214, T=1000010, seed=12345, N=1, rtx=1, slots=0, alwaysCharge=1, out=Paper1/Fig4/out/C10__lambda2.2221410704__r0_692455.csv, version=BaseStation
+params: mu=3.38873, e=1.6, C=5, lambda=1.2, T=1000010, seed=12345, N=1, rtx=1, slots=0, alwaysCharge=1, out=Paper1/Fig6/out/e1.6__mu3.3887266703__r0_406629.csv, version=BaseStation
 [Headless] done, rc=0

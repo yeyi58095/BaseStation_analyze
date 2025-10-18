@@ -24,7 +24,7 @@ figure:
     clip_ratio: 0.995     # 最終停在 99.5% * λ_max
     refine:
       enabled: true
-      levels: 4           # d0/16
+      levels: 6           # d0/16
 
 sim:
   exe: "../Projects/BaseStation/Win32/Debug/Project2.exe"
