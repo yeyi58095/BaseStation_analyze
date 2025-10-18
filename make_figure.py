@@ -14,36 +14,41 @@ Directory layout (relative to repo root `RA/`):
 
 Usage:
     # If you run from RA/Result, set sim.exe to "../Projects/.../Project2.exe"
-    python make_figure.py Result/Paper1/Fig4/config.yaml
-    
+    python3 make_figure.py Paper1/Fig4/config.yaml
+
     # Or run from RA/ with original paths
-    python Result/make_figure.py Result/Paper1/Fig4/config.yaml
+    python3 Result/make_figure.py Result/Paper1/Fig4/config.yaml
 
     # Run all configs under Result/**/Fig*/config.yaml
-    python Result/make_figure.py --all
+    python3 Result/make_figure.py --all
 
-YAML schema (key additions for optional vertical asymptotes & auto ranges):
+YAML schema (key additions for optional vertical asymptotes, auto ranges, and stats):
 ---
 figure:
   paper: "Paper1"
   id: "Fig4"
   title: "Average number of DPs vs λ (μ=3, e=2.4)"
   x_var: "lambda"              # one of: lambda, mu, e
-  y_metric: "L"                # CSV columns: L, W, avg_delay_ms, loss_rate, EP_mean, ...
+  y_metric: "L"                # CSV columns: L, W, avg_delay_ms, loss_rate, EP_mean, P_es, ...
   ylabel: "Average number of DPs (L_D)"
   xlabel: "λ"
   legend: true
   save_as: "fig4.png"
-  aggregate_runs: 1
-  stability_guard: true        # keeps legacy protection
-  # --- NEW: figure-level defaults for auto range toward a vertical asymptote ---
+  aggregate_runs: 1            # set 5~10 to enable stats/CI
+  stability_guard: true        # keeps legacy protection for x_var==lambda
+  stats:                       # NEW: stats & error bars (used when aggregate_runs>1)
+    ci_level: 0.95             # 0.90 / 0.95 / 0.99
+    error_style: "bar"         # "bar" (errorbar) | "band" (shaded band)
+    save_table: true           # write <id>_stats.csv
   auto_defaults:
     step: 0.2                  # spacing for auto-generated x grid
-    approach: "left"           # "left" = approach asymptote from smaller x; "right" from larger x
+    approach: "left"           # "left" approach asymptote from smaller x; "right" from larger x
     common_start: 0.4          # if approach==left, all curves share this start (optional)
     common_end: 2.2            # if approach==right, all curves share this end (optional)
-    clip_ratio: 0.995          # how close to asymptote (0.995 = 99.5% of x_asym) for left; 1.005 for right
-  # --- NEW: vertical asymptote rendering (optional) ---
+    clip_ratio: 0.995          # how close to asymptote (0.995 => 99.5% of x_asym) for left
+    refine:                    # optional dyadic refinement near asymptote
+      enabled: true
+      levels: 6                # 6 => d0/64
   asymptote:
     draw: true                 # show dashed vertical lines
     mode: "auto_stability"     # "auto_stability" (only when x_var==lambda) or "value"
@@ -71,8 +76,9 @@ sweeps:
 ...
 
 Notes:
-- Stability guard uses λ_max from inequality (10): λ < μ * (1 - (μ/ε)^C) / (1 - (μ/ε)^(C+1)).
-- NEW: You can let the script auto-generate x grids that stop ε-close to a vertical asymptote, and also draw dashed vertical lines per curve. This matches your request: curves start from a common start and approach their own asymptote (left), or start near their own asymptote and extend to a common end (right).
+- Stability guard uses λ_max from inequality (10): λ < μ * (1 - (μ/e)^C) / (1 - (μ/e)^(C+1)).
+- You can auto-generate x grids that stop ε-close to a vertical asymptote, and draw dashed vertical lines per curve.
+- With approach=="right": start is just to the right of asymptote; end is common_end or auto-detected via end_policy.
 """
 from __future__ import annotations
 import argparse
@@ -88,11 +94,13 @@ from typing import Dict, List, Any, Tuple, Optional
 
 try:
     import yaml  # PyYAML
-except Exception as e:
+except Exception:
     print("[make_figure] Missing dependency: PyYAML (pip install pyyaml)")
     raise
 
 import matplotlib.pyplot as plt
+from math import sqrt
+import statistics
 
 # ------------------------- Utilities -------------------------
 
@@ -119,18 +127,45 @@ def stability_lambda_max(mu: float, e: float, C: int) -> float:
 
 def frange(start: float, end: float, step: float) -> List[float]:
     xs = []
-    x = start
-    # include end with small epsilon tolerance depending on direction
     if step == 0:
         return xs
+    x = start
     if start <= end:
         while x <= end + 1e-12:
-            xs.append(round(x, 10))
+            xs.append(round(float(x), 10))
             x += step
     else:
         while x >= end - 1e-12:
-            xs.append(round(x, 10))
+            xs.append(round(float(x), 10))
             x -= abs(step)
+    return xs
+
+
+def dyadic_refine_left(start: float, x_asym: float, levels: int, terminal_clip: float) -> List[float]:
+    """Generate points approaching x_asym from the left with dyadic spacing."""
+    if not math.isfinite(start) or not math.isfinite(x_asym) or x_asym <= start:
+        return []
+    d0 = x_asym - start
+    xs = []
+    for k in range(1, levels + 1):
+        xk = x_asym - d0 / (2.0 ** k)
+        xs.append(xk)
+    if terminal_clip is not None:
+        xs = [x for x in xs if x <= x_asym * terminal_clip]
+    return xs
+
+
+def dyadic_refine_right(end: float, x_asym: float, levels: int, terminal_clip: float) -> List[float]:
+    """Generate points approaching x_asym from the right with dyadic spacing."""
+    if not math.isfinite(end) or not math.isfinite(x_asym) or x_asym >= end:
+        return []
+    d0 = end - x_asym
+    xs = []
+    for k in range(1, levels + 1):
+        xk = x_asym + d0 / (2.0 ** k)
+        xs.append(xk)
+    if terminal_clip is not None and terminal_clip > 1.0:
+        xs = [x for x in xs if x >= x_asym * terminal_clip]
     return xs
 
 
@@ -161,20 +196,10 @@ def read_metric_from_csv(csv_path: str, metric: str) -> float:
         rows = list(reader)
         if not rows:
             raise ValueError(f"No data rows in {csv_path}")
-
-        # 支援虛擬 metric：例如 EP_short = 1 - EP_mean
-        if metric == "EP_short":
-            base_val = rows[-1].get("EP_mean")
-            if base_val is None:
-                raise KeyError(f"Base metric 'EP_mean' not found in header of {csv_path}")
-            return 1.0 - float(base_val)
-
-        # 一般情況：直接讀取對應欄位
         val = rows[-1].get(metric)
         if val is None:
             raise KeyError(f"Metric '{metric}' not found in header of {csv_path}")
         return float(val)
-
 
 
 @dataclass
@@ -201,6 +226,7 @@ class FigureSpec:
     stability_guard: bool
     auto_defaults: Dict[str, Any]
     asymptote: Dict[str, Any]
+    stats: Dict[str, Any]
 
 
 @dataclass
@@ -209,39 +235,7 @@ class SimConfig:
     base_args: Dict[str, Any]
 
 
-# ------------------------- Core Runner -------------------------
-
-def dyadic_refine_left(start: float, x_asym: float, levels: int, terminal_clip: float) -> List[float]:
-    """Generate points approaching x_asym from the left with dyadic spacing.
-       Distance sequence d_k = d0 / 2^k until k=levels, then clip by terminal_clip (e.g., 0.995 of asym).
-    """
-    if not math.isfinite(start) or not math.isfinite(x_asym) or x_asym <= start:
-        return []
-    d0 = x_asym - start
-    xs = []
-    for k in range(1, levels + 1):
-        xk = x_asym - d0 / (2.0 ** k)
-        xs.append(xk)
-    if terminal_clip is not None:
-        xs = [x for x in xs if x <= x_asym * terminal_clip]
-    return xs
-
-
-def dyadic_refine_right(end: float, x_asym: float, levels: int, terminal_clip: float) -> List[float]:
-    """Generate points approaching x_asym from the right with dyadic spacing.
-       Distance sequence d_k = d0 / 2^k until k=levels, then clip by terminal_clip (e.g., 1.005 of asym).
-    """
-    if not math.isfinite(end) or not math.isfinite(x_asym) or x_asym >= end:
-        return []
-    d0 = end - x_asym
-    xs = []
-    for k in range(1, levels + 1):
-        xk = x_asym + d0 / (2.0 ** k)
-        xs.append(xk)
-    if terminal_clip is not None and terminal_clip > 1.0:
-        xs = [x for x in xs if x >= x_asym * terminal_clip]
-    return xs
-
+# ------------------------- Core Loader -------------------------
 
 def load_yaml(path: str) -> Tuple[FigureSpec, SimConfig, List[CurveSpec], str]:
     with open(path, "r", encoding="utf-8") as f:
@@ -261,6 +255,7 @@ def load_yaml(path: str) -> Tuple[FigureSpec, SimConfig, List[CurveSpec], str]:
         stability_guard=bool(cfg["figure"].get("stability_guard", True)),
         auto_defaults=cfg["figure"].get("auto_defaults", {}),
         asymptote=cfg["figure"].get("asymptote", {"draw": False}),
+        stats=cfg["figure"].get("stats", {"ci_level": 0.95, "error_style": "bar", "save_table": True}),
     )
     sim = SimConfig(
         exe=cfg["sim"]["exe"],
@@ -277,6 +272,8 @@ def load_yaml(path: str) -> Tuple[FigureSpec, SimConfig, List[CurveSpec], str]:
     fig_dir = os.path.dirname(path)
     return fig, sim, curves, fig_dir
 
+
+# ------------------------- Asymptote helpers -------------------------
 
 def determine_asymptote_x(fig: FigureSpec, curve: CurveSpec) -> Optional[float]:
     # Per-curve x_auto has highest priority
@@ -311,10 +308,9 @@ def build_auto_xs(fig: FigureSpec, curve: CurveSpec) -> Optional[List[float]]:
     step = (curve.x_auto or {}).get("step", fig.auto_defaults.get("step", 0.2))
     clip_ratio = (curve.x_auto or {}).get("asymptote", {}).get("clip_ratio", fig.auto_defaults.get("clip_ratio", 0.995))
 
-    # NEW: optional dyadic refinement near asymptote
     refine_cfg = (curve.x_auto or {}).get("refine", fig.auto_defaults.get("refine", {})) or {}
     refine_enabled = bool(refine_cfg.get("enabled", False))
-    refine_levels = int(refine_cfg.get("levels", 4))  # 4 levels → final distance d0/16
+    refine_levels = int(refine_cfg.get("levels", 4))
 
     x_asym = determine_asymptote_x(fig, curve)
     xs: List[float] = []
@@ -323,26 +319,22 @@ def build_auto_xs(fig: FigureSpec, curve: CurveSpec) -> Optional[List[float]]:
         start = fig.auto_defaults.get("common_start")
         if start is None:
             start = (curve.x_auto or {}).get("start", 0.0)
-        end = None
         if x_asym is not None:
             end = x_asym * float(clip_ratio)
         else:
             end = (curve.x_auto or {}).get("end", fig.auto_defaults.get("common_end"))
         if end is None:
             return None
-        # coarse grid up to clipped end
         coarse = frange(float(start), float(end), float(step))
         xs.extend(coarse)
-        # dyadic refinement approaching asymptote
         if refine_enabled and x_asym is not None and refine_levels > 0:
             xs.extend(dyadic_refine_left(float(start), float(x_asym), refine_levels, float(clip_ratio)))
+
     elif approach == "right":
         end = fig.auto_defaults.get("common_end")
         if end is None:
             end = (curve.x_auto or {}).get("end", 0.0)
-        start = None
         if x_asym is not None:
-            # approach from right: just beyond the asymptote
             start = x_asym * (1.0 + max(1e-3, (1.0/float(clip_ratio) - 1.0) if clip_ratio else 0.005))
         else:
             start = (curve.x_auto or {}).get("start", fig.auto_defaults.get("common_start"))
@@ -355,15 +347,31 @@ def build_auto_xs(fig: FigureSpec, curve: CurveSpec) -> Optional[List[float]]:
     else:
         return None
 
-    # unique + sorted
     xs = sorted(set(round(x, 10) for x in xs))
     return xs
 
 
-def aggregate_runs(csv_paths: List[str], metric: str) -> float:
-    vals = [read_metric_from_csv(p, metric) for p in csv_paths]
-    return sum(vals) / len(vals)
+# ------------------------- Stats helpers -------------------------
 
+def compute_stats(values: List[float], ci_level: float) -> Dict[str, float]:
+    n = len(values)
+    mean_val = sum(values) / n
+    std_val = statistics.stdev(values) if n > 1 else 0.0
+    var_val = std_val ** 2
+    z_map = {0.90: 1.645, 0.95: 1.96, 0.99: 2.576}
+    z = z_map.get(round(ci_level, 2), 1.96)
+    ci_half = z * (std_val / sqrt(n)) if n > 1 else 0.0
+    return {
+        "mean": mean_val,
+        "var": var_val,
+        "std": std_val,
+        "ci_lower": mean_val - ci_half,
+        "ci_upper": mean_val + ci_half,
+        "ci_half": ci_half,
+    }
+
+
+# ------------------------- Plotting core -------------------------
 
 def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_dir: str) -> str:
     out_dir = os.path.join(fig_dir, "out")
@@ -374,11 +382,60 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
     plt.xlabel(fig.xlabel)
     plt.ylabel(fig.ylabel)
 
-    for curve in curves:
-        xs: List[float] = []
-        ys: List[float] = []
+    # Auto-compute common_end for approach=="right" when requested
+    if fig.auto_defaults.get("approach") == "right" and not fig.auto_defaults.get("common_end"):
+        end_policy = fig.auto_defaults.get("end_policy") or {}
+        if end_policy.get("mode") == "threshold_plus":
+            threshold = float(end_policy.get("threshold", 10.0))
+            margin = float(end_policy.get("margin", 0.5))
+            probe_step = float(end_policy.get("probe_step", 0.1))
 
-        # Decide x grid
+            def measure_y(xval: float, base_args: Dict[str, Any], curve_label: str) -> float:
+                tmp_csv = os.path.join(out_dir, f"__probe__{curve_label.replace(' ','_')}__{fig.x_var}{xval}.csv")
+                run_args = dict(base_args)
+                run_args[fig.x_var] = xval
+                run_sim_once(sim.exe, run_args, tmp_csv)
+                try:
+                    yv = read_metric_from_csv(tmp_csv, fig.y_metric)
+                finally:
+                    try:
+                        os.remove(tmp_csv)
+                    except Exception:
+                        pass
+                return yv
+
+            crossings: List[float] = []
+            for curve in curves:
+                base_args = dict(sim.base_args)
+                for k in ("mu", "e", "C", "lambda"):
+                    if k in curve.fixed and curve.fixed[k] is not None:
+                        base_args[k] = curve.fixed[k]
+                x_asym = determine_asymptote_x(fig, curve)
+                if x_asym is None:
+                    continue
+                start = x_asym * (1.0 + max(1e-3, (1.0/float(fig.auto_defaults.get("clip_ratio", 0.995)) - 1.0)))
+                x = start
+                found = None
+                for _ in range(200):
+                    yv = measure_y(x, base_args, curve.label)
+                    if yv < threshold:
+                        found = x
+                        break
+                    x += probe_step
+                if found is not None:
+                    crossings.append(found)
+            if crossings:
+                common_end = max(crossings) + margin
+                fig.auto_defaults["common_end"] = common_end
+                print(f"[auto] approach=right common_end set to {common_end:.4f} (threshold {threshold} + margin {margin})")
+
+    # Collect stats rows when aggregate_runs>1
+    stats_rows: List[Dict[str, Any]] = []
+    use_error = fig.aggregate_runs > 1
+    ci_level = float(fig.stats.get("ci_level", 0.95))
+    error_style = fig.stats.get("error_style", "bar")
+
+    for curve in curves:
         if curve.x_values:
             x_list = list(curve.x_values)
         else:
@@ -393,6 +450,10 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
             if x_asym is not None:
                 plt.axvline(x_asym, linestyle="--", alpha=0.5)
 
+        xs: List[float] = []
+        ys_mean: List[float] = []
+        ys_err: List[float] = []
+
         for x in x_list:
             args_map = dict(sim.base_args)
             for k in ("mu", "e", "C", "lambda"):
@@ -400,8 +461,7 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
                     args_map[k] = curve.fixed[k]
             args_map[fig.x_var] = x
 
-
-            # Legacy stability guard (still useful when user supplies x_values)
+            # Legacy stability guard
             if fig.stability_guard and fig.x_var == "lambda":
                 mu = float(args_map["mu"]) if args_map.get("mu") is not None else None
                 e = float(args_map["e"]) if args_map.get("e") is not None else None
@@ -412,9 +472,9 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
                         print(f"[skip] {curve.label} x={x} >= stability bound (λ_max≈{lam_max:.4f})")
                         continue
 
-            # Multiple runs
-            run_csvs = []
-            for r in range(max(1, fig.aggregate_runs)):
+            run_values: List[float] = []
+            runs = max(1, int(fig.aggregate_runs))
+            for r in range(runs):
                 stamp = f"{int(time.time()*1000)%1_000_000:06d}"
                 safe_label = curve.label.replace(' ', '_').replace('=', '')
                 out_csv = os.path.join(out_dir, f"{safe_label}__{fig.x_var}{x}__r{r}_{stamp}.csv")
@@ -425,17 +485,45 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
                     except Exception:
                         pass
                 run_sim_once(sim.exe, run_args, out_csv)
-                run_csvs.append(out_csv)
+                val = read_metric_from_csv(out_csv, fig.y_metric)
+                run_values.append(val)
 
-            y = aggregate_runs(run_csvs, fig.y_metric)
-            xs.append(x)
-            ys.append(y)
+            if use_error:
+                s = compute_stats(run_values, ci_level)
+                stats_rows.append({
+                    "curve": curve.label,
+                    fig.x_var: x,
+                    f"{fig.y_metric}_mean": s["mean"],
+                    f"{fig.y_metric}_var": s["var"],
+                    f"{fig.y_metric}_std": s["std"],
+                    "ci_level": ci_level,
+                    "ci_lower": s["ci_lower"],
+                    "ci_upper": s["ci_upper"],
+                })
+                xs.append(x); ys_mean.append(s["mean"]); ys_err.append(s["ci_half"]) 
+            else:
+                m = sum(run_values)/len(run_values)
+                xs.append(x); ys_mean.append(m); ys_err.append(0.0)
 
+        # Plot
         if not xs:
             print(f"[warn] No valid points for curve '{curve.label}'.")
             continue
-        xs, ys = zip(*sorted(zip(xs, ys)))
-        plt.plot(list(xs), list(ys), marker="o", label=curve.label)
+        order = sorted(range(len(xs)), key=lambda i: xs[i])
+        xs = [xs[i] for i in order]
+        ys_mean = [ys_mean[i] for i in order]
+        ys_err = [ys_err[i] for i in order]
+
+        if use_error:
+            if error_style == "band":
+                plt.plot(xs, ys_mean, marker="o", label=curve.label)
+                plt.fill_between(xs, [m-e for m,e in zip(ys_mean, ys_err)], [m+e for m,e in zip(ys_mean, ys_err)], alpha=0.2)
+            else:  # "bar"
+                marker_style = "o" if fig.stats.get("show_marker", True) else None
+                plt.errorbar(xs, ys_mean, yerr=ys_err, marker=marker_style, capsize=3, label=curve.label)
+
+        else:
+            plt.plot(xs, ys_mean, marker="o", label=curve.label)
 
     if fig.x_ticks:
         plt.xticks(fig.x_ticks)
@@ -444,9 +532,17 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
     plt.grid(True, linestyle=":", alpha=0.5)
 
     save_path = os.path.join(fig_dir, fig.save_as)
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=200)
+    plt.tight_layout(); plt.savefig(save_path, dpi=200)
     print(f"[ok] Saved: {save_path}")
+
+    if fig.aggregate_runs > 1 and fig.stats.get("save_table", True):
+        stats_csv = os.path.join(fig_dir, f"{fig.id.lower()}_stats.csv")
+        if 'stats_rows' in locals() and stats_rows:
+            with open(stats_csv, "w", newline="", encoding="utf-8") as f:
+                w = csv.DictWriter(f, fieldnames=list(stats_rows[0].keys()))
+                w.writeheader(); w.writerows(stats_rows)
+            print(f"[ok] Stats saved: {stats_csv}")
+
     return save_path
 
 
@@ -466,8 +562,7 @@ def main():
     if args.all:
         cfg_paths = discover_all_configs()
         if not cfg_paths:
-            print("[make_figure] No configs found under Result/**/Fig*/config.yaml")
-            return 1
+            print("[make_figure] No configs found under Result/**/Fig*/config.yaml"); return 1
     elif args.config:
         cfg_paths = [args.config]
     else:
@@ -475,7 +570,7 @@ def main():
 
     for p in cfg_paths:
         fig, sim, curves, fig_dir = load_yaml(p)
-        print(f"\n[figure] {fig.paper}/{fig.id} — {fig.title}")
+        print(f"figure] {fig.paper}/{fig.id} — {fig.title}")
         print(f"[sim] exe={sim.exe}")
         plot_figure(fig, sim, curves, fig_dir)
 
