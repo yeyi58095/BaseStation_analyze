@@ -385,13 +385,11 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
 
         for x in x_list:
             args_map = dict(sim.base_args)
-            args_map.update({
-                "mu": curve.fixed.get("mu"),
-                "e": curve.fixed.get("e"),
-                "C": curve.fixed.get("C"),
-                "lambda": curve.fixed.get("lambda"),
-            })
+            for k in ("mu", "e", "C", "lambda"):
+                if k in curve.fixed and curve.fixed[k] is not None:
+                    args_map[k] = curve.fixed[k]
             args_map[fig.x_var] = x
+
 
             # Legacy stability guard (still useful when user supplies x_values)
             if fig.stability_guard and fig.x_var == "lambda":
