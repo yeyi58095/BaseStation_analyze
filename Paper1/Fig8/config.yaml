@@ -15,6 +15,7 @@ figure:
     save_table: true         # 會輸出 fig8_stats.csv
     show_marker: false
   stability_guard: true
+  parallel_workers: 4
 
   # 左邊收斂：共同起點 → 各自 λ_max 左側
   auto_defaults:

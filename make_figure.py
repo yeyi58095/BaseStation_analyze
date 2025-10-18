@@ -91,6 +91,9 @@ import sys
 import time
 from dataclasses import dataclass
 from typing import Dict, List, Any, Tuple, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import uuid
+
 
 try:
     import yaml  # PyYAML
@@ -227,6 +230,7 @@ class FigureSpec:
     auto_defaults: Dict[str, Any]
     asymptote: Dict[str, Any]
     stats: Dict[str, Any]
+    parallel_workers: int = 0
 
 
 @dataclass
@@ -256,6 +260,7 @@ def load_yaml(path: str) -> Tuple[FigureSpec, SimConfig, List[CurveSpec], str]:
         auto_defaults=cfg["figure"].get("auto_defaults", {}),
         asymptote=cfg["figure"].get("asymptote", {"draw": False}),
         stats=cfg["figure"].get("stats", {"ci_level": 0.95, "error_style": "bar", "save_table": True}),
+        parallel_workers=int(cfg["figure"].get("parallel_workers", 0)), 
     )
     sim = SimConfig(
         exe=cfg["sim"]["exe"],
@@ -473,20 +478,41 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
                         continue
 
             run_values: List[float] = []
+            run_csvs: List[str] = []
+
             runs = max(1, int(fig.aggregate_runs))
-            for r in range(runs):
-                stamp = f"{int(time.time()*1000)%1_000_000:06d}"
+            # workers: 若 YAML 沒指定則取 CPU 數與 runs 的較小值
+            workers = int(fig.parallel_workers) if getattr(fig, "parallel_workers", 0) else min(os.cpu_count() or 1, runs)
+
+            def _one_run(r_idx: int) -> Tuple[float, str]:
                 safe_label = curve.label.replace(' ', '_').replace('=', '')
-                out_csv = os.path.join(out_dir, f"{safe_label}__{fig.x_var}{x}__r{r}_{stamp}.csv")
+                unique = uuid.uuid4().hex[:8]
+                out_csv = os.path.join(out_dir, f"{safe_label}__{fig.x_var}{x}__r{r_idx}_{unique}.csv")
                 run_args = dict(args_map)
                 if "seed" in run_args:
                     try:
-                        run_args["seed"] = int(run_args["seed"]) + r
+                        run_args["seed"] = int(run_args["seed"]) + r_idx
                     except Exception:
                         pass
                 run_sim_once(sim.exe, run_args, out_csv)
                 val = read_metric_from_csv(out_csv, fig.y_metric)
-                run_values.append(val)
+                return val, out_csv
+
+            if runs == 1 or workers <= 1:
+                # 單執行緒
+                for r in range(runs):
+                    v, pth = _one_run(r)
+                    run_values.append(v)
+                    run_csvs.append(pth)
+            else:
+                # 多執行緒並行
+                with ThreadPoolExecutor(max_workers=workers) as ex:
+                    futures = {ex.submit(_one_run, r): r for r in range(runs)}
+                    for fut in as_completed(futures):
+                        v, pth = fut.result()
+                        run_values.append(v)
+                        run_csvs.append(pth)
+
 
             if use_error:
                 s = compute_stats(run_values, ci_level)
