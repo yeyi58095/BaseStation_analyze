@@ -1,0 +1,50 @@
+figure:
+  paper: "Paper1"
+  id: "Fig9"
+  title: "Energy shortage probability vs λ (C=2)"
+  x_var: "lambda"
+  y_metric: "EP_short"        # 你的 CSV 欄位：能量短缺機率（0~1）
+  ylabel: "Energy shortage probability (P_es)"
+  xlabel: "λ"
+  legend: true
+  save_as: "fig9.png"
+  aggregate_runs: 1
+  stability_guard: true
+
+  # 左邊收斂：共同起點 → 各自 λ_max 左側
+  auto_defaults:
+    approach: "left"
+    common_start: 0.4
+    step: 0.2
+    clip_ratio: 0.999        # 更貼近臨界值；若太慢可調 0.998
+    refine: { enabled: true, levels: 6 }
+
+  # 畫出每條曲線的臨界 λ（用式(10)自動算）
+  asymptote:
+    draw: true
+    mode: "auto_stability"
+
+sim:
+  exe: "../Projects/BaseStation/Win32/Debug/Project2.exe"
+  base_args:
+    T: 1000010
+    seed: 12345
+    N: 1
+    rtx: 1
+    slots: 0
+    alwaysCharge: true
+    version: "BaseStation"
+    C: 2
+
+sweeps:
+  - label: "μ=2, e=2.4"
+    fixed: { mu: 2.0, e: 2.4, C: 2 }
+    x_auto: {}
+
+  - label: "μ=3, e=2.4"
+    fixed: { mu: 3.0, e: 2.4, C: 2 }
+    x_auto: {}
+
+  - label: "μ=3, e=4"
+    fixed: { mu: 3.0, e: 4.0, C: 2 }
+    x_auto: {}

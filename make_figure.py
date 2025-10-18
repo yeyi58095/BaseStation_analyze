@@ -161,10 +161,20 @@ def read_metric_from_csv(csv_path: str, metric: str) -> float:
         rows = list(reader)
         if not rows:
             raise ValueError(f"No data rows in {csv_path}")
+
+        # 支援虛擬 metric：例如 EP_short = 1 - EP_mean
+        if metric == "EP_short":
+            base_val = rows[-1].get("EP_mean")
+            if base_val is None:
+                raise KeyError(f"Base metric 'EP_mean' not found in header of {csv_path}")
+            return 1.0 - float(base_val)
+
+        # 一般情況：直接讀取對應欄位
         val = rows[-1].get(metric)
         if val is None:
             raise KeyError(f"Metric '{metric}' not found in header of {csv_path}")
         return float(val)
+
 
 
 @dataclass

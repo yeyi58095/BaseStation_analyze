@@ -1,0 +1,49 @@
+figure:
+  paper: "Paper1"
+  id: "Fig8"
+  title: "Average packet delay vs λ (C=2)"
+  x_var: "lambda"
+  y_metric: "W"              # 平均封包延遲 (若你想算含 service time，可改用 avg_delay_ms)
+  ylabel: "Average packet delay (W)"
+  xlabel: "λ"
+  legend: true
+  save_as: "fig8.png"
+  aggregate_runs: 1
+  stability_guard: true      # 防止超過 λ_max 的點
+  # 左邊收斂：從共同起點 → 各自 λ_max 左邊
+  auto_defaults:
+    approach: "left"
+    common_start: 0.4
+    step: 0.2
+    clip_ratio: 0.999        # 逼近到 99.9% 的臨界值
+    refine: { enabled: true, levels: 6 }
+
+  # 自動畫出各曲線的垂直漸進線
+  asymptote:
+    draw: true
+    mode: "auto_stability"
+
+sim:
+  exe: "../Projects/BaseStation/Win32/Debug/Project2.exe"
+  base_args:
+    T: 1000010
+    seed: 12345
+    N: 1
+    rtx: 1
+    slots: 0
+    alwaysCharge: true
+    version: "BaseStation"
+    C: 2
+
+sweeps:
+  - label: "μ=2, e=2.4"
+    fixed: { mu: 2.0, e: 2.4, C: 2 }
+    x_auto: {}               # 使用 auto_defaults
+
+  - label: "μ=3, e=2.4"
+    fixed: { mu: 3.0, e: 2.4, C: 2 }
+    x_auto: {}
+
+  - label: "μ=3, e=4"
+    fixed: { mu: 3.0, e: 4.0, C: 2 }
+    x_auto: {}
