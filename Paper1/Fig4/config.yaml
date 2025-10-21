@@ -8,23 +8,27 @@ figure:
   xlabel: "λ"
   legend: true
   save_as: "fig4.png"
-  aggregate_runs: 1
+
+  aggregate_runs: 8
+  parallel_workers: 16
+  stats:
+    ci_level: 0.95
+    error_style: "bar"
+    show_marker: false
+    save_table: true
+
   stability_guard: true
 
-  # 畫各曲線的鉛直漸進線（以穩定邊界為準）
+  auto_defaults:
+    approach: "left"
+    common_start: 0.4
+    step: 0.2
+    clip_ratio: 0.995
+    refine: { enabled: true, levels: 6 }
+
   asymptote:
     draw: true
     mode: "auto_stability"
-
-  # 共同自動掃點設定：從共同起點 → 各自漸進線，並做二分加密到 1/16
-  auto_defaults:
-    approach: "left"      # 從左邊靠近
-    common_start: 0.4     # 全部曲線共同起點
-    step: 0.2             # 粗網格步距（會再加密）
-    clip_ratio: 0.995     # 最終停在 99.5% * λ_max
-    refine:
-      enabled: true
-      levels: 6           # d0/16
 
 sim:
   exe: "../Projects/BaseStation/Win32/Debug/Project2.exe"
@@ -40,10 +44,10 @@ sim:
 sweeps:
   - label: "C=1"
     fixed: { mu: 3.0, e: 2.4, C: 1 }
-    x_auto: {}            # 用 figure 的 auto_defaults
+    x_auto: {}
   - label: "C=5"
     fixed: { mu: 3.0, e: 2.4, C: 5 }
-    x_auto: {}            # 同上
+    x_auto: {}
   - label: "C=10"
     fixed: { mu: 3.0, e: 2.4, C: 10 }
-    x_auto: {}            # 同上
+    x_auto: {}

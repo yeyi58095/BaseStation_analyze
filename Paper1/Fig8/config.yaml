@@ -3,21 +3,22 @@ figure:
   id: "Fig8"
   title: "Average packet delay vs λ (C=2)"
   x_var: "lambda"
-  y_metric: "W"              # 若要含服務時間改用 avg_delay_ms
+  y_metric: "W"
   ylabel: "Average packet delay (W)"
   xlabel: "λ"
   legend: true
   save_as: "fig8.png"
-  aggregate_runs: 5          # 5~10 都行，>1 才會畫誤差
-  stats:
-    ci_level: 0.95           # 0.90 / 0.95 / 0.99
-    error_style: "bar"       # "bar" 或 "band"
-    save_table: true         # 會輸出 fig8_stats.csv
-    show_marker: false
-  stability_guard: true
-  parallel_workers: 4
 
-  # 左邊收斂：共同起點 → 各自 λ_max 左側
+  aggregate_runs: 8
+  parallel_workers: 16
+  stats:
+    ci_level: 0.95
+    error_style: "bar"
+    show_marker: false
+    save_table: true
+
+  stability_guard: true
+
   auto_defaults:
     approach: "left"
     common_start: 0.4
@@ -25,7 +26,6 @@ figure:
     clip_ratio: 0.999
     refine: { enabled: true, levels: 6 }
 
-  # 自動畫出各曲線的垂直漸進線
   asymptote:
     draw: true
     mode: "auto_stability"
@@ -46,11 +46,9 @@ sweeps:
   - label: "μ=2, e=2.4"
     fixed: { mu: 2.0, e: 2.4, C: 2 }
     x_auto: {}
-
   - label: "μ=3, e=2.4"
     fixed: { mu: 3.0, e: 2.4, C: 2 }
     x_auto: {}
-
   - label: "μ=3, e=4"
     fixed: { mu: 3.0, e: 4.0, C: 2 }
     x_auto: {}

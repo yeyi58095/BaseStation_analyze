@@ -8,23 +8,27 @@ figure:
   xlabel: "μ"
   legend: true
   save_as: "fig6.png"
-  aggregate_runs: 1
-  stability_guard: false      # 只針對 x_var=lambda 會用到，這張不需要
 
-  # 右邊收斂：從各自漸進線右側 → 共同終點
+  aggregate_runs: 8
+  parallel_workers: 16
+  stats:
+    ci_level: 0.95
+    error_style: "bar"
+    show_marker: false
+    save_table: true
+
+  stability_guard: false
+
   auto_defaults:
     approach: "right"
-    common_end: 3.5           # 共同終點（可改 4.0）
+    common_end: 3.5
     step: 0.2
-    clip_ratio: 0.995         # 右側：從 μ* 的 100.5% 左右起跑
-    refine:
-      enabled: true
-      levels: 6               # 二分加密到 d0/64
+    clip_ratio: 0.995
+    refine: { enabled: true, levels: 6 }
 
-  # 顯示垂直漸進線（這張圖 x 軸是 μ，所以改用固定 value）
   asymptote:
     draw: true
-    mode: "value"             # 每條曲線用各自的 μ*（在 sweeps 的 x_auto 裡給 value）
+    mode: "value"
 
 sim:
   exe: "../Projects/BaseStation/Win32/Debug/Project2.exe"
@@ -42,22 +46,10 @@ sim:
 sweeps:
   - label: "e=3"
     fixed: { e: 3.0 }
-    x_auto:
-      # 這條曲線自己的漸進線（μ*）
-      asymptote:
-        mode: "value"
-        value: 0.9712634131
-
+    x_auto: { asymptote: { mode: "value", value: 0.9712634131 } }
   - label: "e=2"
     fixed: { e: 2.0 }
-    x_auto:
-      asymptote:
-        mode: "value"
-        value: 1.0670576365
-
+    x_auto: { asymptote: { mode: "value", value: 1.0670576365 } }
   - label: "e=1.6"
     fixed: { e: 1.6 }
-    x_auto:
-      asymptote:
-        mode: "value"
-        value: 1.1827830369
+    x_auto: { asymptote: { mode: "value", value: 1.1827830369 } }

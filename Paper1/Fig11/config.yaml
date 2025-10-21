@@ -1,16 +1,16 @@
 figure:
   paper: "Paper1"
-  id: "Fig7"
-  title: "Average number of DPs vs e (λ=0.9, C=2)"
+  id: "Fig11"
+  title: "Energy shortage probability vs e (λ=0.9, C=2)"
   x_var: "e"
-  y_metric: "L"
-  ylabel: "Average number of DPs (L_D)"
+  y_metric: "P_es"
+  ylabel: "Energy shortage probability (P_es)"
   xlabel: "e"
   legend: true
-  save_as: "fig7.png"
+  save_as: "fig11.png"
 
   aggregate_runs: 8
-  parallel_workers: 16
+  parallel_workers: 8
   stats:
     ci_level: 0.95
     error_style: "bar"
@@ -19,12 +19,15 @@ figure:
 
   stability_guard: false
 
+  # 右邊收斂：從各自 e* 的右側 → 共同終點
   auto_defaults:
     approach: "right"
     common_end: 2.0
     step: 0.2
     clip_ratio: 0.995
-    refine: { enabled: true, levels: 6 }
+    refine:
+      enabled: true
+      levels: 6
 
   asymptote:
     draw: true
@@ -46,10 +49,15 @@ sim:
 sweeps:
   - label: "μ=2.4"
     fixed: { mu: 2.4 }
-    x_auto: { asymptote: { mode: "value", value: 1.0126906698 } }
+    x_auto:
+      asymptote: { mode: "value", value: 1.0126906698 }
+
   - label: "μ=2.0"
     fixed: { mu: 2.0 }
-    x_auto: { asymptote: { mode: "value", value: 1.0670576365 } }
+    x_auto:
+      asymptote: { mode: "value", value: 1.0670576365 }
+
   - label: "μ=1.6"
     fixed: { mu: 1.6 }
-    x_auto: { asymptote: { mode: "value", value: 1.1827830369 } }
+    x_auto:
+      asymptote: { mode: "value", value: 1.1827830369 }
