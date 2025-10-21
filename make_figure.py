@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 make_figure.py — Batch simulator + plotter for WPCN paper figures (Fig.4~Fig.11)
 
@@ -6,6 +7,7 @@ Directory layout (relative to repo root `RA/`):
 - Projects/BaseStation/Win32/Debug/Project2.exe  # simulator (already built)
 - Result/
     make_figure.py                                # this file
+    theory.py                                     # (optional) analytic curves plug-in
     PaperX/
       FigY/
         config.yaml                               # figure recipe
@@ -22,65 +24,14 @@ Usage:
     # Run all configs under Result/**/Fig*/config.yaml
     python3 Result/make_figure.py --all
 
-YAML schema (key additions for optional vertical asymptotes, auto ranges, and stats):
----
-figure:
-  paper: "Paper1"
-  id: "Fig4"
-  title: "Average number of DPs vs λ (μ=3, e=2.4)"
-  x_var: "lambda"              # one of: lambda, mu, e
-  y_metric: "L"                # CSV columns: L, W, avg_delay_ms, loss_rate, EP_mean, P_es, ...
-  ylabel: "Average number of DPs (L_D)"
-  xlabel: "λ"
-  legend: true
-  save_as: "fig4.png"
-  aggregate_runs: 1            # set 5~10 to enable stats/CI
-  stability_guard: true        # keeps legacy protection for x_var==lambda
-  stats:                       # NEW: stats & error bars (used when aggregate_runs>1)
-    ci_level: 0.95             # 0.90 / 0.95 / 0.99
-    error_style: "bar"         # "bar" (errorbar) | "band" (shaded band)
-    save_table: true           # write <id>_stats.csv
-  auto_defaults:
-    step: 0.2                  # spacing for auto-generated x grid
-    approach: "left"           # "left" approach asymptote from smaller x; "right" from larger x
-    common_start: 0.4          # if approach==left, all curves share this start (optional)
-    common_end: 2.2            # if approach==right, all curves share this end (optional)
-    clip_ratio: 0.995          # how close to asymptote (0.995 => 99.5% of x_asym) for left
-    refine:                    # optional dyadic refinement near asymptote
-      enabled: true
-      levels: 6                # 6 => d0/64
-  asymptote:
-    draw: true                 # show dashed vertical lines
-    mode: "auto_stability"     # "auto_stability" (only when x_var==lambda) or "value"
-    value: null                # required when mode=="value"
-
-sim:
-  exe: "Projects/BaseStation/Win32/Debug/Project2.exe"
-  base_args: { T: 1000010, seed: 12345, N: 1, rtx: 1, slots: 0, alwaysCharge: true, version: "BaseStation" }
-
-sweeps:
-  - label: "C=1"
-    fixed: { mu: 3.0, e: 2.4, C: 1 }
-    # Use EITHER x_values OR x_auto. If both are present, x_values wins.
-    # x_values: [0.4, 0.6, 0.8, 1.0, 1.2, 1.3]
-    x_auto:
-      approach: "left"         # optional override of figure.auto_defaults.approach
-      step: 0.2                # optional override of figure.auto_defaults.step
-      asymptote:
-        mode: "auto_stability" # or "value"
-        value: null            # set when mode=="value"
-        clip_ratio: 0.995      # optional override of figure.auto_defaults.clip_ratio
-  - label: "C=5"
-    fixed: { mu: 3.0, e: 2.4, C: 5 }
-    x_auto: { }
-...
-
 Notes:
 - Stability guard uses λ_max from inequality (10): λ < μ * (1 - (μ/e)^C) / (1 - (μ/e)^(C+1)).
-- You can auto-generate x grids that stop ε-close to a vertical asymptote, and draw dashed vertical lines per curve.
-- With approach=="right": start is just to the right of asymptote; end is common_end or auto-detected via end_policy.
+- From now on, simulation points are *not connected* (points only). Error bars/bands still supported.
+- Theory lines are drawn by default (no YAML change). Put closed-form/solvers into Result/theory.py.
+  If theory is unavailable for a curve, nothing is drawn (no error). You can also pass --no-theory.
 """
 from __future__ import annotations
+
 import argparse
 import csv
 import glob
@@ -89,27 +40,37 @@ import os
 import subprocess
 import sys
 import time
+import uuid
+import statistics
 from dataclasses import dataclass
 from typing import Dict, List, Any, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import uuid
 
-
+# ---------- Optional dependency ----------
 try:
     import yaml  # PyYAML
 except Exception:
     print("[make_figure] Missing dependency: PyYAML (pip install pyyaml)")
     raise
 
+# ---------- Plot ----------
 import matplotlib.pyplot as plt
 from math import sqrt
-import statistics
+
+# ---------- Optional theory plug-in ----------
+_theory_mod = None
+try:
+    import importlib
+    _theory_mod = importlib.import_module("theory")  # look for Result/theory.py
+    print("[theory] plug-in loaded.")
+except Exception:
+    _theory_mod = None
+    print("[theory] no plug-in found; only simulation points will be drawn where theory is missing.")
 
 # ------------------------- Utilities -------------------------
 
 def ensure_dir(path: str) -> None:
     os.makedirs(path, exist_ok=True)
-
 
 def stability_lambda_max(mu: float, e: float, C: int) -> float:
     """Compute λ_max from inequality (10):
@@ -127,7 +88,6 @@ def stability_lambda_max(mu: float, e: float, C: int) -> float:
         return min(e, mu)
     return mu * (num / den)
 
-
 def frange(start: float, end: float, step: float) -> List[float]:
     xs = []
     if step == 0:
@@ -143,7 +103,6 @@ def frange(start: float, end: float, step: float) -> List[float]:
             x -= abs(step)
     return xs
 
-
 def dyadic_refine_left(start: float, x_asym: float, levels: int, terminal_clip: float) -> List[float]:
     """Generate points approaching x_asym from the left with dyadic spacing."""
     if not math.isfinite(start) or not math.isfinite(x_asym) or x_asym <= start:
@@ -157,7 +116,6 @@ def dyadic_refine_left(start: float, x_asym: float, levels: int, terminal_clip: 
         xs = [x for x in xs if x <= x_asym * terminal_clip]
     return xs
 
-
 def dyadic_refine_right(end: float, x_asym: float, levels: int, terminal_clip: float) -> List[float]:
     """Generate points approaching x_asym from the right with dyadic spacing."""
     if not math.isfinite(end) or not math.isfinite(x_asym) or x_asym >= end:
@@ -170,7 +128,6 @@ def dyadic_refine_right(end: float, x_asym: float, levels: int, terminal_clip: f
     if terminal_clip is not None and terminal_clip > 1.0:
         xs = [x for x in xs if x >= x_asym * terminal_clip]
     return xs
-
 
 def run_sim_once(exe: str, args_map: Dict[str, Any], out_csv: str) -> None:
     ensure_dir(os.path.dirname(out_csv))
@@ -192,7 +149,6 @@ def run_sim_once(exe: str, args_map: Dict[str, Any], out_csv: str) -> None:
         print(cp.stderr, file=sys.stderr)
         raise RuntimeError(f"Simulator exited with {cp.returncode}")
 
-
 def read_metric_from_csv(csv_path: str, metric: str) -> float:
     with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -204,6 +160,7 @@ def read_metric_from_csv(csv_path: str, metric: str) -> float:
             raise KeyError(f"Metric '{metric}' not found in header of {csv_path}")
         return float(val)
 
+# ------------------------- Data classes -------------------------
 
 @dataclass
 class CurveSpec:
@@ -211,7 +168,6 @@ class CurveSpec:
     fixed: Dict[str, Any]
     x_values: Optional[List[float]] = None
     x_auto: Optional[Dict[str, Any]] = None
-
 
 @dataclass
 class FigureSpec:
@@ -231,19 +187,20 @@ class FigureSpec:
     asymptote: Dict[str, Any]
     stats: Dict[str, Any]
     parallel_workers: int = 0
-
+    # theory 控制：預設 auto（畫理論；不用 YAML）
+    theory: Dict[str, Any] = None
 
 @dataclass
 class SimConfig:
     exe: str
     base_args: Dict[str, Any]
 
-
 # ------------------------- Core Loader -------------------------
 
 def load_yaml(path: str) -> Tuple[FigureSpec, SimConfig, List[CurveSpec], str]:
     with open(path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
+
     fig = FigureSpec(
         paper=cfg["figure"]["paper"],
         id=cfg["figure"]["id"],
@@ -260,13 +217,17 @@ def load_yaml(path: str) -> Tuple[FigureSpec, SimConfig, List[CurveSpec], str]:
         auto_defaults=cfg["figure"].get("auto_defaults", {}),
         asymptote=cfg["figure"].get("asymptote", {"draw": False}),
         stats=cfg["figure"].get("stats", {"ci_level": 0.95, "error_style": "bar", "save_table": True}),
-        parallel_workers=int(cfg["figure"].get("parallel_workers", 0)), 
+        parallel_workers=int(cfg["figure"].get("parallel_workers", 0)),
+        # 如果 YAML 沒有 theory 欄位，預設為 auto（會畫理論）
+        theory=cfg["figure"].get("theory", {"mode": "auto"}),
     )
+
     sim = SimConfig(
         exe=cfg["sim"]["exe"],
         base_args=cfg["sim"].get("base_args", {}),
     )
-    curves = []
+
+    curves: List[CurveSpec] = []
     for i, it in enumerate(cfg.get("sweeps", [])):
         curves.append(CurveSpec(
             label=it.get("label", f"curve_{i}"),
@@ -274,9 +235,9 @@ def load_yaml(path: str) -> Tuple[FigureSpec, SimConfig, List[CurveSpec], str]:
             x_values=it.get("x_values"),
             x_auto=it.get("x_auto"),
         ))
+
     fig_dir = os.path.dirname(path)
     return fig, sim, curves, fig_dir
-
 
 # ------------------------- Asymptote helpers -------------------------
 
@@ -304,7 +265,6 @@ def determine_asymptote_x(fig: FigureSpec, curve: CurveSpec) -> Optional[float]:
         C = int(curve.fixed.get("C"))
         return stability_lambda_max(mu, e, C)
     return None
-
 
 def build_auto_xs(fig: FigureSpec, curve: CurveSpec) -> Optional[List[float]]:
     if not curve.x_auto and not fig.auto_defaults:
@@ -355,7 +315,6 @@ def build_auto_xs(fig: FigureSpec, curve: CurveSpec) -> Optional[List[float]]:
     xs = sorted(set(round(x, 10) for x in xs))
     return xs
 
-
 # ------------------------- Stats helpers -------------------------
 
 def compute_stats(values: List[float], ci_level: float) -> Dict[str, float]:
@@ -375,10 +334,9 @@ def compute_stats(values: List[float], ci_level: float) -> Dict[str, float]:
         "ci_half": ci_half,
     }
 
-
 # ------------------------- Plotting core -------------------------
 
-def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_dir: str) -> str:
+def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_dir: str, no_theory: bool=False) -> str:
     out_dir = os.path.join(fig_dir, "out")
     ensure_dir(out_dir)
 
@@ -440,7 +398,11 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
     ci_level = float(fig.stats.get("ci_level", 0.95))
     error_style = fig.stats.get("error_style", "bar")
 
+    # --- unified small marker style ---
+    base_marker = dict(marker='o', markersize=4, markerfacecolor='none', markeredgewidth=0.8)
+
     for curve in curves:
+        # Build x grid
         if curve.x_values:
             x_list = list(curve.x_values)
         else:
@@ -449,12 +411,13 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
                 print(f"[warn] No x grid for curve '{curve.label}'. Provide x_values or x_auto/auto_defaults.")
                 continue
 
-        # draw per-curve vertical asymptote if requested
+        # Per-curve vertical asymptote
         if fig.asymptote.get("draw"):
             x_asym = determine_asymptote_x(fig, curve)
             if x_asym is not None:
                 plt.axvline(x_asym, linestyle="--", alpha=0.5)
 
+        # --- run simulations for each x ---
         xs: List[float] = []
         ys_mean: List[float] = []
         ys_err: List[float] = []
@@ -466,7 +429,7 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
                     args_map[k] = curve.fixed[k]
             args_map[fig.x_var] = x
 
-            # Legacy stability guard
+            # Stability guard for lambda-axis
             if fig.stability_guard and fig.x_var == "lambda":
                 mu = float(args_map["mu"]) if args_map.get("mu") is not None else None
                 e = float(args_map["e"]) if args_map.get("e") is not None else None
@@ -478,10 +441,7 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
                         continue
 
             run_values: List[float] = []
-            run_csvs: List[str] = []
-
             runs = max(1, int(fig.aggregate_runs))
-            # workers: 若 YAML 沒指定則取 CPU 數與 runs 的較小值
             workers = int(fig.parallel_workers) if getattr(fig, "parallel_workers", 0) else min(os.cpu_count() or 1, runs)
 
             def _one_run(r_idx: int) -> Tuple[float, str]:
@@ -499,20 +459,15 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
                 return val, out_csv
 
             if runs == 1 or workers <= 1:
-                # 單執行緒
                 for r in range(runs):
-                    v, pth = _one_run(r)
+                    v, _ = _one_run(r)
                     run_values.append(v)
-                    run_csvs.append(pth)
             else:
-                # 多執行緒並行
                 with ThreadPoolExecutor(max_workers=workers) as ex:
                     futures = {ex.submit(_one_run, r): r for r in range(runs)}
                     for fut in as_completed(futures):
-                        v, pth = fut.result()
+                        v, _ = fut.result()
                         run_values.append(v)
-                        run_csvs.append(pth)
-
 
             if use_error:
                 s = compute_stats(run_values, ci_level)
@@ -526,12 +481,12 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
                     "ci_lower": s["ci_lower"],
                     "ci_upper": s["ci_upper"],
                 })
-                xs.append(x); ys_mean.append(s["mean"]); ys_err.append(s["ci_half"]) 
+                xs.append(x); ys_mean.append(s["mean"]); ys_err.append(s["ci_half"])
             else:
-                m = sum(run_values)/len(run_values)
+                m = sum(run_values) / len(run_values)
                 xs.append(x); ys_mean.append(m); ys_err.append(0.0)
 
-        # Plot
+        # ---- Simulation: draw style depends on theory availability ----
         if not xs:
             print(f"[warn] No valid points for curve '{curve.label}'.")
             continue
@@ -540,21 +495,86 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
         ys_mean = [ys_mean[i] for i in order]
         ys_err = [ys_err[i] for i in order]
 
+        # whether theory exists for this curve
+        has_theory = False
+        if _theory_mod and hasattr(_theory_mod, "get_curve"):
+            try:
+                has_theory = _theory_mod.get_curve(fig.y_metric, fig.x_var, curve.fixed) is not None
+            except Exception:
+                has_theory = False
+
+        # draw simulation (A) with theory: points only; (B) without theory: line+points
         if use_error:
             if error_style == "band":
-                plt.plot(xs, ys_mean, marker="o", label=curve.label)
-                plt.fill_between(xs, [m-e for m,e in zip(ys_mean, ys_err)], [m+e for m,e in zip(ys_mean, ys_err)], alpha=0.2)
-            else:  # "bar"
-                marker_style = "o" if fig.stats.get("show_marker", True) else None
-                plt.errorbar(xs, ys_mean, yerr=ys_err, marker=marker_style, capsize=3, label=curve.label)
-
+                # band should not enter legend
+                plt.fill_between(xs,
+                                 [m - e for m, e in zip(ys_mean, ys_err)],
+                                 [m + e for m, e in zip(ys_mean, ys_err)],
+                                 alpha=0.15, zorder=2, label=None)
+                if has_theory:
+                    plt.plot(xs, ys_mean, linestyle='none', label=f"{curve.label} (sim)", zorder=3, **base_marker)
+                else:
+                    plt.plot(xs, ys_mean, '-', linewidth=1.2, label=f"{curve.label} (sim)", zorder=3, **base_marker)
+            else:
+                plt.errorbar(xs, ys_mean, yerr=ys_err,
+                             fmt='o' if has_theory else '-o',
+                             linestyle='none' if has_theory else '-',
+                             capsize=3, markersize=base_marker["markersize"],
+                             label=f"{curve.label} (sim)", zorder=3)
         else:
-            plt.plot(xs, ys_mean, marker="o", label=curve.label)
+            if has_theory:
+                plt.plot(xs, ys_mean, linestyle='none', label=f"{curve.label} (sim)", zorder=3, **base_marker)
+            else:
+                plt.plot(xs, ys_mean, '-', linewidth=1.2, label=f"{curve.label} (sim)", zorder=3, **base_marker)
 
+        # ---- Theory line (auto ON unless --no-theory or theory.mode=="off") ----
+        draw_theory = not no_theory
+        if isinstance(fig.theory, dict) and fig.theory.get("mode", "auto") == "off":
+            draw_theory = False
+
+        if draw_theory and _theory_mod and hasattr(_theory_mod, "get_curve"):
+            try:
+                ask = _theory_mod.get_curve(fig.y_metric, fig.x_var, curve.fixed)
+            except Exception as ex:
+                ask = None
+                print(f"[theory] error resolving '{curve.label}': {ex}")
+
+            if ask:
+                f_theory, (xmin, xmax), lsuf = ask
+                # clip theory domain by simulation span (avoid unstable ranges)
+                x_lo = min(xs); x_hi = max(xs)
+                lo = max(min(xmin, xmax), x_lo)
+                hi = min(max(xmin, xmax), x_hi)
+                if hi > lo:
+                    step = max((hi - lo) / 300.0, 1e-4)
+                    x_dense = frange(lo, hi, step)
+                    y_dense = [f_theory(xv) for xv in x_dense]
+                    xy = [(xd, yd) for xd, yd in zip(x_dense, y_dense) if yd == yd and math.isfinite(yd)]
+                    if len(xy) >= 2:
+                        x_dense2, y_dense2 = zip(*xy)
+                        # same color as points
+                        tmp, = plt.plot(xs, ys_mean, linestyle='none')
+                        color = tmp.get_color()
+                        tmp.remove()
+                        plt.plot(x_dense2, y_dense2, '-', linewidth=2, color=color,
+                                 label=f"{curve.label} {lsuf}", zorder=2)
+
+    # ----- axes cosmetics and legend (deduplicated) -----
     if fig.x_ticks:
         plt.xticks(fig.x_ticks)
+
     if fig.legend:
-        plt.legend()
+        ax = plt.gca()
+        handles, labels = ax.get_legend_handles_labels()
+        seen = set()
+        new_h, new_l = [], []
+        for h, l in zip(handles, labels):
+            if not l or l in seen:
+                continue
+            seen.add(l)
+            new_h.append(h); new_l.append(l)
+        ax.legend(new_h, new_l)
+
     plt.grid(True, linestyle=":", alpha=0.5)
 
     save_path = os.path.join(fig_dir, fig.save_as)
@@ -571,17 +591,18 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
 
     return save_path
 
-
-# ------------------------- CLI -------------------------
+# ------------------------- Discovery -------------------------
 
 def discover_all_configs() -> List[str]:
     return sorted(glob.glob(os.path.join("Result", "**", "Fig*", "config.yaml"), recursive=True))
 
+# ------------------------- CLI -------------------------
 
 def main():
     ap = argparse.ArgumentParser(description="Auto-run BaseStation simulator and plot figures from YAML recipes.")
     ap.add_argument("config", nargs="?", help="Path to a single config.yaml")
     ap.add_argument("--all", action="store_true", help="Run all configs under Result/**/Fig*/config.yaml")
+    ap.add_argument("--no-theory", action="store_true", help="Do not draw theory lines even if available")
     args = ap.parse_args()
 
     cfg_paths: List[str] = []
@@ -596,12 +617,11 @@ def main():
 
     for p in cfg_paths:
         fig, sim, curves, fig_dir = load_yaml(p)
-        print(f"figure] {fig.paper}/{fig.id} — {fig.title}")
+        print(f"[figure] {fig.paper}/{fig.id} — {fig.title}")
         print(f"[sim] exe={sim.exe}")
-        plot_figure(fig, sim, curves, fig_dir)
+        plot_figure(fig, sim, curves, fig_dir, no_theory=args.no_theory)
 
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
