@@ -88,6 +88,19 @@ def stability_lambda_max(mu: float, e: float, C: int) -> float:
         return min(e, mu)
     return mu * (num / den)
 
+def mu_min_for_stability(e: float, lmb: float) -> float:
+    # Eq.(48): μ > e * (-1 + sqrt(1 + 4λ/(e-λ)))
+    if e <= lmb:
+        return float("inf")
+    return e * (-1.0 + math.sqrt(1.0 + 4.0*lmb/(e - lmb)))
+
+def e_min_for_stability(mu: float, lmb: float) -> float:
+    # Eq.(49): e > μ * (-1 + sqrt(1 + 4λ/(μ-λ))) / 2
+    if mu <= lmb:
+        return float("inf")
+    return mu * (-1.0 + math.sqrt(1.0 + 4.0*lmb/(mu - lmb))) / 2.0
+
+
 def frange(start: float, end: float, step: float) -> List[float]:
     xs = []
     if step == 0:
@@ -102,6 +115,20 @@ def frange(start: float, end: float, step: float) -> List[float]:
             xs.append(round(float(x), 10))
             x -= abs(step)
     return xs
+
+def merged_params(sim: SimConfig, curve: CurveSpec) -> Dict[str, Any]:
+    """Merge sim.base_args and curve.fixed for theory; curve.fixed overrides."""
+    params: Dict[str, Any] = {}
+    for k in ("mu", "e", "C", "lambda"):
+        if k in sim.base_args and sim.base_args[k] is not None:
+            params[k] = sim.base_args[k]
+    for k in ("mu", "e", "C", "lambda"):
+        if k in curve.fixed and curve.fixed[k] is not None:
+            params[k] = curve.fixed[k]
+    if "C" not in params or params["C"] is None:
+        params["C"] = 2
+    return params
+
 
 def dyadic_refine_left(start: float, x_asym: float, levels: int, terminal_clip: float) -> List[float]:
     """Generate points approaching x_asym from the left with dyadic spacing."""
@@ -242,28 +269,38 @@ def load_yaml(path: str) -> Tuple[FigureSpec, SimConfig, List[CurveSpec], str]:
 # ------------------------- Asymptote helpers -------------------------
 
 def determine_asymptote_x(fig: FigureSpec, curve: CurveSpec) -> Optional[float]:
-    # Per-curve x_auto has highest priority
-    mode = None
-    value = None
-    clip_ratio = None
+    mode = None; value = None; clip_ratio = None
     if curve.x_auto and curve.x_auto.get("asymptote"):
         a = curve.x_auto["asymptote"]
-        mode = a.get("mode")
-        value = a.get("value")
-        clip_ratio = a.get("clip_ratio")
+        mode = a.get("mode"); value = a.get("value"); clip_ratio = a.get("clip_ratio")
     if mode is None and fig.asymptote:
-        mode = fig.asymptote.get("mode")
-        value = fig.asymptote.get("value")
+        mode = fig.asymptote.get("mode"); value = fig.asymptote.get("value")
         if clip_ratio is None:
             clip_ratio = fig.auto_defaults.get("clip_ratio")
-    # Compute if requested
+
     if mode == "value" and isinstance(value, (int, float)):
         return float(value)
-    if mode == "auto_stability" and fig.x_var == "lambda":
-        mu = float(curve.fixed.get("mu"))
-        e = float(curve.fixed.get("e"))
-        C = int(curve.fixed.get("C"))
-        return stability_lambda_max(mu, e, C)
+
+    if mode == "auto_stability":
+        if fig.x_var == "lambda":
+            mu = float(curve.fixed.get("mu"))
+            e  = float(curve.fixed.get("e"))
+            C  = int(curve.fixed.get("C"))
+            return stability_lambda_max(mu, e, C)
+        elif fig.x_var == "mu":
+            lmb = float((curve.fixed.get("lambda")
+                         if curve.fixed.get("lambda") is not None
+                         else (fig.auto_defaults.get("lambda") if fig.auto_defaults else None)
+                         or (sim.base_args.get("lambda") if 'sim' in globals() else 0.0)))
+            e = float(curve.fixed.get("e"))
+            return mu_min_for_stability(e, lmb)
+        elif fig.x_var == "e":
+            lmb = float((curve.fixed.get("lambda")
+                         if curve.fixed.get("lambda") is not None
+                         else (fig.auto_defaults.get("lambda") if fig.auto_defaults else None)
+                         or (sim.base_args.get("lambda") if 'sim' in globals() else 0.0)))
+            mu = float(curve.fixed.get("mu"))
+            return e_min_for_stability(mu, lmb)
     return None
 
 def build_auto_xs(fig: FigureSpec, curve: CurveSpec) -> Optional[List[float]]:
@@ -499,9 +536,13 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
         has_theory = False
         if _theory_mod and hasattr(_theory_mod, "get_curve"):
             try:
-                has_theory = _theory_mod.get_curve(fig.y_metric, fig.x_var, curve.fixed) is not None
-            except Exception:
+                params_for_theory = merged_params(sim, curve)
+                has_theory = _theory_mod.get_curve(fig.y_metric, fig.x_var, params_for_theory) is not None
+            except Exception as ex:
+                print(f"[theory] probe error '{curve.label}': {ex}")
                 has_theory = False
+
+
 
         # draw simulation (A) with theory: points only; (B) without theory: line+points
         if use_error:
@@ -527,37 +568,46 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
             else:
                 plt.plot(xs, ys_mean, '-', linewidth=1.2, label=f"{curve.label} (sim)", zorder=3, **base_marker)
 
-        # ---- Theory line (auto ON unless --no-theory or theory.mode=="off") ----
+                # ---- Theory line (auto ON unless --no-theory or theory.mode=="off") ----
         draw_theory = not no_theory
         if isinstance(fig.theory, dict) and fig.theory.get("mode", "auto") == "off":
             draw_theory = False
 
         if draw_theory and _theory_mod and hasattr(_theory_mod, "get_curve"):
             try:
-                ask = _theory_mod.get_curve(fig.y_metric, fig.x_var, curve.fixed)
+                params_for_theory = merged_params(sim, curve)
+                ask = _theory_mod.get_curve(fig.y_metric, fig.x_var, params_for_theory)
             except Exception as ex:
                 ask = None
                 print(f"[theory] error resolving '{curve.label}': {ex}")
 
             if ask:
-                f_theory, (xmin, xmax), lsuf = ask
-                # clip theory domain by simulation span (avoid unstable ranges)
+                f_theory, _dom_unused, lsuf = ask
+
+                # 直接用「模擬點的範圍」來畫理論線（避免 domain 過度保守）
                 x_lo = min(xs); x_hi = max(xs)
-                lo = max(min(xmin, xmax), x_lo)
-                hi = min(max(xmin, xmax), x_hi)
-                if hi > lo:
-                    step = max((hi - lo) / 300.0, 1e-4)
-                    x_dense = frange(lo, hi, step)
+                if x_hi > x_lo:
+                    step = max((x_hi - x_lo) / 300.0, 1e-4)
+                    x_dense = frange(x_lo, x_hi, step)
                     y_dense = [f_theory(xv) for xv in x_dense]
+
+                    # 至少要有兩個有效點才畫
                     xy = [(xd, yd) for xd, yd in zip(x_dense, y_dense) if yd == yd and math.isfinite(yd)]
                     if len(xy) >= 2:
                         x_dense2, y_dense2 = zip(*xy)
-                        # same color as points
+
+                        # 用與模擬點相同顏色
                         tmp, = plt.plot(xs, ys_mean, linestyle='none')
                         color = tmp.get_color()
                         tmp.remove()
+
                         plt.plot(x_dense2, y_dense2, '-', linewidth=2, color=color,
                                  label=f"{curve.label} {lsuf}", zorder=2)
+                    else:
+                        print(f"[theory] '{curve.label}' has <2 finite points in span [{x_lo:.4g},{x_hi:.4g}] → skip")
+            else:
+                print(f"[theory] no curve for '{curve.label}' (y={fig.y_metric}, x={fig.x_var}, fixed={curve.fixed})")
+
 
     # ----- axes cosmetics and legend (deduplicated) -----
     if fig.x_ticks:
