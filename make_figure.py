@@ -594,7 +594,20 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
 # ------------------------- Discovery -------------------------
 
 def discover_all_configs() -> List[str]:
-    return sorted(glob.glob(os.path.join("Result", "**", "Fig*", "config.yaml"), recursive=True))
+    # 支援：從 RA/ 或 RA/Result/ 甚至更深層呼叫
+    here = os.getcwd()
+    candidates = []
+
+    patterns = [
+        os.path.join("Result", "**", "Fig*", "config.yaml"),  # 從 RA/ 執行時有效
+        os.path.join("**", "Fig*", "config.yaml"),            # 從 Result/ 執行時有效
+    ]
+
+    for pat in patterns:
+        candidates.extend(glob.glob(pat, recursive=True))
+
+    # 去重、排序
+    return sorted(set(candidates))
 
 # ------------------------- CLI -------------------------
 
