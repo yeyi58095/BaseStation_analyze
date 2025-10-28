@@ -524,6 +524,7 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
                 xs.append(x); ys_mean.append(m); ys_err.append(0.0)
 
         # ---- Simulation: draw style depends on theory availability ----
+                # ---- Simulation: draw style depends on theory availability ----
         if not xs:
             print(f"[warn] No valid points for curve '{curve.label}'.")
             continue
@@ -532,37 +533,52 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
         ys_mean = [ys_mean[i] for i in order]
         ys_err = [ys_err[i] for i in order]
 
-        # whether theory exists for this curve
+        # 是否要畫理論（你的其它邏輯保持不變）
+        draw_theory = not no_theory
+        if isinstance(fig.theory, dict) and fig.theory.get("mode", "auto") == "off":
+            draw_theory = False
+
+        # 這裡沿用你原本對理論的偵測方式（如果你有 _theory_mod 就用；沒有就當成 False）
         has_theory = False
-        if _theory_mod and hasattr(_theory_mod, "get_curve"):
-            try:
+        try:
+            if draw_theory and _theory_mod and hasattr(_theory_mod, "get_curve"):
                 params_for_theory = merged_params(sim, curve)
                 has_theory = _theory_mod.get_curve(fig.y_metric, fig.x_var, params_for_theory) is not None
-            except Exception as ex:
-                print(f"[theory] probe error '{curve.label}': {ex}")
-                has_theory = False
+        except Exception as ex:
+            print(f"[theory] probe error '{curve.label}': {ex}")
+            has_theory = False
 
+        # --- 統一的中空標記樣式 ---
+        base_marker = dict(marker='o', markersize=4, markerfacecolor='none', markeredgewidth=0.8)
 
-
-        # draw simulation (A) with theory: points only; (B) without theory: line+points
         if use_error:
             if error_style == "band":
-                # band should not enter legend
-                plt.fill_between(xs,
-                                 [m - e for m, e in zip(ys_mean, ys_err)],
-                                 [m + e for m, e in zip(ys_mean, ys_err)],
-                                 alpha=0.15, zorder=2, label=None)
-                if has_theory:
-                    plt.plot(xs, ys_mean, linestyle='none', label=f"{curve.label} (sim)", zorder=3, **base_marker)
-                else:
-                    plt.plot(xs, ys_mean, '-', linewidth=1.2, label=f"{curve.label} (sim)", zorder=3, **base_marker)
-            else:
-                plt.errorbar(xs, ys_mean, yerr=ys_err,
-                             fmt='o' if has_theory else '-o',
-                             linestyle='none' if has_theory else '-',
-                             capsize=3, markersize=base_marker["markersize"],
-                             label=f"{curve.label} (sim)", zorder=3)
+                # 空心點 + band（不連線）
+                plt.scatter(xs, ys_mean, label=curve.label,
+                            facecolors='none', edgecolors=None, **{k:v for k,v in base_marker.items() if k!='markerfacecolor'})
+                lower = [m - e for m, e in zip(ys_mean, ys_err)]
+                upper = [m + e for m, e in zip(ys_mean, ys_err)]
+                plt.fill_between(xs, lower, upper, alpha=0.2)
+
+                # 若沒有理論線，補一條「連線」讓點被描起來
+                if not has_theory:
+                    tmp, = plt.plot(xs, ys_mean)             # 先取到顏色
+                    color = tmp.get_color(); tmp.remove()
+                    plt.plot(xs, ys_mean, '-', linewidth=1.2, color=color, zorder=2)
+
+            else:  # "bar"
+                # 誤差棒 + 空心點
+                eb = plt.errorbar(xs, ys_mean, yerr=ys_err, fmt="o", capsize=3, linestyle="None",
+                                   markerfacecolor='none', markeredgewidth=1.0, label=curve.label)
+                # 若沒有理論線，就把點連起來（顏色跟誤差棒一致）
+                try:
+                    color = eb[0].get_color()
+                except Exception:
+                    color = None
+                plt.plot(xs, ys_mean, '-', linewidth=1.2, color=color, zorder=2) if not has_theory else None
+
         else:
+            # 沒開誤差棒：有理論 → 只畫空心點；無理論 → 點 + 連線
             if has_theory:
                 plt.plot(xs, ys_mean, linestyle='none', label=f"{curve.label} (sim)", zorder=3, **base_marker)
             else:
