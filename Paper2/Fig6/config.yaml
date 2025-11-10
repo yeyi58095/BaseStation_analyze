@@ -1,0 +1,54 @@
+figure:
+  paper: Paper1
+  id: Fig6
+  title: "Fig.6  L vs μ  (C=2, λ=0.9)"
+  x_var: "mu"
+  y_metric: "L"
+  ylabel: "L (avg. number of data packets in system)"
+  xlabel: "μ (service rate)"
+  legend: true
+  save_as: "fig6.png"
+  aggregate_runs: 3
+  stats: { ci_level: 0.95, error_style: "bar", save_table: true }
+  stability_guard: false
+  asymptote: { draw: true, mode: "value" }
+  auto_defaults: { approach: "right", step: 0.1, common_end: 6.0 }
+  theory: { mode: "auto" }
+
+sim:
+  exe: "../Projects/BaseStation/Win32/Debug/Project2.exe"
+  base_args:
+    lambda: 0.9
+    C: 2
+    T: 1000010
+    seed: 12345
+    N: 10                 # ← 改成 10
+    rtx: 1
+    slots: 0
+    alwaysCharge: true
+    version: "BaseStation"
+
+    # —— 距離模型（亂數）——
+    use_dist: true
+    dmode: "uniform"     # 可用: uniform / normal / lognormal（依你 HeadlessBridge 實作）
+    dmin: 7.0
+    dmax: 18.0
+    dseed: 424242        # ← 距離亂數的「獨立種子」，保證可重現
+    pt: 1000.0
+    alpha: 2.0
+
+sweeps:
+  - label: "e=3.0"
+    fixed: { e: 3.0, C: 2, lambda: 0.9 }
+    x_auto: { approach: "right", start: 1.961, end: 6.0, step: 0.1 }
+    asymptote: { mode: "value", value: 1.94253 }
+
+  - label: "e=2.0"
+    fixed: { e: 2.0, C: 2, lambda: 0.9 }
+    x_auto: { approach: "right", start: 2.155, end: 6.0, step: 0.1 }
+    asymptote: { mode: "value", value: 2.13412 }
+
+  - label: "e=1.6"
+    fixed: { e: 1.6, C: 2, lambda: 0.9 }
+    x_auto: { approach: "right", start: 2.389, end: 6.0, step: 0.1 }
+    asymptote: { mode: "value", value: 2.36557 }

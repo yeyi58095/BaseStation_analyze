@@ -244,7 +244,7 @@ def load_yaml(path: str) -> Tuple[FigureSpec, SimConfig, List[CurveSpec], str]:
         auto_defaults=cfg["figure"].get("auto_defaults", {}),
         asymptote=cfg["figure"].get("asymptote", {"draw": False}),
         stats=cfg["figure"].get("stats", {"ci_level": 0.95, "error_style": "bar", "save_table": True}),
-        parallel_workers=int(cfg["figure"].get("parallel_workers", 0)),
+        parallel_workers=int(cfg["figure"].get("parallel_workers",  min(20, os.cpu_count() or 20))),
         # 如果 YAML 沒有 theory 欄位，預設為 auto（會畫理論）
         theory=cfg["figure"].get("theory", {"mode": "auto"}),
     )
@@ -486,14 +486,26 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
                 unique = uuid.uuid4().hex[:8]
                 out_csv = os.path.join(out_dir, f"{safe_label}__{fig.x_var}{x}__r{r_idx}_{unique}.csv")
                 run_args = dict(args_map)
-                if "seed" in run_args:
-                    try:
-                        run_args["seed"] = int(run_args["seed"]) + r_idx
-                    except Exception:
-                        pass
+
+                # 讓每次重複 run 有不同亂數種子（可重現）
+                # 若 YAML/base_args 已有 seed/dseed，就在其基礎上 +r_idx
+                # 若沒有，就以固定基底（例如 12345）+r_idx 生成，避免全部相同導致 yerr=0
+                try:
+                    base_seed = int(run_args.get("seed", 12345))
+                except Exception:
+                    base_seed = 12345
+                run_args["seed"] = base_seed + r_idx
+
+                try:
+                    base_dseed = int(run_args.get("dseed", 67890))
+                except Exception:
+                    base_dseed = 67890
+                run_args["dseed"] = base_dseed + r_idx
+
                 run_sim_once(sim.exe, run_args, out_csv)
                 val = read_metric_from_csv(out_csv, fig.y_metric)
                 return val, out_csv
+
 
             if runs == 1 or workers <= 1:
                 for r in range(runs):
