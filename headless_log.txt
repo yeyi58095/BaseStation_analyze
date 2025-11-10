@@ -1,3 +1,4 @@
 [Headless] start
-params: mu=1.6, e=1.98873, C=2, lambda=0.9, T=1000010, seed=12351, N=1, rtx=1, slots=0, alwaysCharge=1, out=Paper1/Fig7/out/£g1.6__e1.9887266703__r6_54aba311.csv, version=BaseStation
+params: mu=1.25, e=2.4, C=300, lambda=0.11875, T=1000010, seed=12348, N=10, rtx=1, slots=0, alwaysCharge=1, Q=10, tau=0.54, out=Paper2/Fig6/out/£l_sweep_(N10,_£g_i1.25)__lambda0.11875__r3_a1ff4c4e.csv, version=BaseStation
+distance_policy: useD=0, dDist=, dP1=0, dP2=0, dseed=67893, pt=1, alpha=1, rBase=-1
 [Headless] done, rc=0
