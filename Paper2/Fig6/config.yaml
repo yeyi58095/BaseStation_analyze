@@ -1,11 +1,11 @@
 figure:
   paper: "Paper2"
   id: "Fig6"
-  title: "Loss rate vs system load ρ (mapped via λ_i = ρ·μ_i/N, μ_i=1.25, N=10)"
-  x_var: "lambda"                # 以 per-sensor λ_i 代表 ρ
+  title: "Loss rate vs system load ρ (N=10, μ=1.25, C=300, Q=10, τ=0.54)"
+  x_var: "lambda"                      # 以 per-sensor λ_i 代表 ρ（ρ = N·λ_i/μ_i）
   y_metric: "loss_rate"
   ylabel: "Loss rate"
-  xlabel: "λ_i (per-sensor)  ←  mapped from ρ = N·λ_i/μ_i"
+  xlabel: "λ_i per sensor  (ρ = N·λ_i / μ_i)"
   legend: true
   save_as: "fig6.png"
 
@@ -16,50 +16,52 @@ figure:
     error_style: "bar"
     save_table: true
 
-  stability_guard: false         # 這裡不用自動穩定界檢查（你也可開啟）
-  auto_defaults: {}              # 我們明確給 x_values，不用 auto
+  stability_guard: false
 
 sim:
   exe: "../Projects/BaseStation/Win32/Debug/Project2.exe"
   base_args:
     T: 1000010
     seed: 12345
-    N: 10                         # 感測器數
-    C: 300                        # 能量容量
-    # r/距離：維持相容（不設定＝延用舊行為）。若想固定 r，加入 rBase: <int>
-    # useD: 1, dDist: "uniform", dP1: <min_d>, dP2: <max_d>, dseed: <int>  可切到距離模式
-    # 下列 tau、Q 目前會被忽略（你的 CLI 尚未解析），先留著備註：
-    tau: 0.54
-    Q: 10
-    # 其餘既有必填：
+    N: 10
+    C: 300
+    Q: 10          # 你的 CLI 已支援 --Q/--Qmax
+    tau: 0.54      # 你的 CLI 已支援 --tau
     rtx: 1
     slots: 0
     alwaysCharge: true
     version: "BaseStation"
-    mu: 1.25                      # 全感測器相同服務率 μ_i
-    e: 2.4                        # 充電速率（若你有指定值可以改這裡）
+    mu: 1.25
+    e: 2.4
 
-# 這裡用單一曲線掃 ρ（已換算成 λ_i）
+# ρ ∈ {0.10, 0.15, …, 0.95}；μ_i=1.25, N=10 ⇒ λ_i = ρ * μ_i / N = 0.125 * ρ
 sweeps:
-  - label: "ρ sweep (N=10, μ_i=1.25)"
-    fixed: {}
-    # ρ ∈ {0.10, 0.15, …, 0.95} → λ_i = 0.125·ρ
-    x_values:
-      - 0.0125    #  ρ=0.10
-      - 0.01875   #  ρ=0.15
-      - 0.025     #  ρ=0.20
-      - 0.03125   #  ρ=0.25
-      - 0.0375    #  ρ=0.30
-      - 0.04375   #  ρ=0.35
-      - 0.05      #  ρ=0.40
-      - 0.05625   #  ρ=0.45
-      - 0.0625    #  ρ=0.50
-      - 0.06875   #  ρ=0.55
-      - 0.075     #  ρ=0.60
-      - 0.08125   #  ρ=0.65
-      - 0.0875    #  ρ=0.70
-      - 0.09375   #  ρ=0.75
-      - 0.1       #  ρ=0.80
-      - 0.10625   #  ρ=0.85
-      - 0.1125    #  ρ=0.90
-      - 0.11875   #  ρ=0.95
+  - label: "RR"
+    fixed: { policy: "rr" }
+    x_values: &lambda_grid
+      - 0.0125    # ρ=0.10
+      - 0.01875   # ρ=0.15
+      - 0.025     # ρ=0.20
+      - 0.03125   # ρ=0.25
+      - 0.0375    # ρ=0.30
+      - 0.04375   # ρ=0.35
+      - 0.05      # ρ=0.40
+      - 0.05625   # ρ=0.45
+      - 0.0625    # ρ=0.50
+      - 0.06875   # ρ=0.55
+      - 0.075     # ρ=0.60
+      - 0.08125   # ρ=0.65
+      - 0.0875    # ρ=0.70
+      - 0.09375   # ρ=0.75
+      - 0.10      # ρ=0.80
+      - 0.10625   # ρ=0.85
+      - 0.1125    # ρ=0.90
+      - 0.11875   # ρ=0.95
+
+  - label: "DF"
+    fixed: { policy: "df" }
+    x_values: *lambda_grid
+
+  - label: "CEDF"
+    fixed: { policy: "cedf" }
+    x_values: *lambda_grid
