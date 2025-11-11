@@ -46,6 +46,15 @@ from dataclasses import dataclass
 from typing import Dict, List, Any, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# --- add this helper (generic args merge, skipping None) ---
+def merge_cli_args(base: Dict[str, Any], override: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    out = dict(base or {})
+    if override:
+        for k, v in override.items():
+            if v is not None:
+                out[k] = v
+    return out
+
 # ---------- Optional dependency ----------
 try:
     import yaml  # PyYAML
@@ -406,10 +415,7 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
 
             crossings: List[float] = []
             for curve in curves:
-                base_args = dict(sim.base_args)
-                for k in ("mu", "e", "C", "lambda"):
-                    if k in curve.fixed and curve.fixed[k] is not None:
-                        base_args[k] = curve.fixed[k]
+                base_args = merge_cli_args(sim.base_args, curve.fixed)  # <— generic, no whitelist
                 x_asym = determine_asymptote_x(fig, curve)
                 if x_asym is None:
                     continue
@@ -460,10 +466,7 @@ def plot_figure(fig: FigureSpec, sim: SimConfig, curves: List[CurveSpec], fig_di
         ys_err: List[float] = []
 
         for x in x_list:
-            args_map = dict(sim.base_args)
-            for k in ("mu", "e", "C", "lambda"):
-                if k in curve.fixed and curve.fixed[k] is not None:
-                    args_map[k] = curve.fixed[k]
+            args_map = merge_cli_args(sim.base_args, curve.fixed)  # <— generic merge
             args_map[fig.x_var] = x
 
             # Stability guard for lambda-axis

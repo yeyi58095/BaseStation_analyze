@@ -2,66 +2,71 @@ figure:
   paper: "Paper2"
   id: "Fig6"
   title: "Loss rate vs system load ρ (N=10, μ=1.25, C=300, Q=10, τ=0.54)"
-  x_var: "lambda"                      # 以 per-sensor λ_i 代表 ρ（ρ = N·λ_i/μ_i）
+  x_var: "lambda"
   y_metric: "loss_rate"
   ylabel: "Loss rate"
-  xlabel: "λ_i per sensor  (ρ = N·λ_i / μ_i)"
+  xlabel: "λ_i per sensor  (ρ = N·λ_i/μ_i)"
   legend: true
   save_as: "fig6.png"
-
-  aggregate_runs: 8
-  parallel_workers: 16
-  stats:
-    ci_level: 0.95
-    error_style: "bar"
-    save_table: true
-
-  stability_guard: false
+  aggregate_runs: 6
+  parallel_workers: 12
+  stats: { ci_level: 0.95, error_style: "bar", save_table: true }
+  auto_defaults: {}
 
 sim:
   exe: "../Projects/BaseStation/Win32/Debug/Project2.exe"
   base_args:
-    T: 1000010
+    T: 600000
     seed: 12345
     N: 10
     C: 300
-    Q: 10          # 你的 CLI 已支援 --Q/--Qmax
-    tau: 0.54      # 你的 CLI 已支援 --tau
+    mu: 1.25
+    e: 2.4
+    Q: 10
+    tau: 0.54
     rtx: 1
     slots: 0
     alwaysCharge: true
     version: "BaseStation"
-    mu: 1.25
-    e: 2.4
 
-# ρ ∈ {0.10, 0.15, …, 0.95}；μ_i=1.25, N=10 ⇒ λ_i = ρ * μ_i / N = 0.125 * ρ
+    # —— 讓策略差異出得來：打開距離異質 —— 
+    useD: 1
+    dDist: "lognormal"   # lognormal(μ=0, σ=0.6)
+    dP1: 0.0
+    dP2: 0.6
+    dseed: 2025
+    pt: 1.0
+    alpha: 1.0
+
+lambda_grid: &lamgrid
+  - 0.0125
+  - 0.01875
+  - 0.025
+  - 0.03125
+  - 0.0375
+  - 0.04375
+  - 0.05
+  - 0.05625
+  - 0.0625
+  - 0.06875
+  - 0.075
+  - 0.08125
+  - 0.0875
+  - 0.09375
+  - 0.10
+  - 0.10625
+  - 0.1125
+  - 0.11875
+
 sweeps:
   - label: "RR"
     fixed: { policy: "rr" }
-    x_values: &lambda_grid
-      - 0.0125    # ρ=0.10
-      - 0.01875   # ρ=0.15
-      - 0.025     # ρ=0.20
-      - 0.03125   # ρ=0.25
-      - 0.0375    # ρ=0.30
-      - 0.04375   # ρ=0.35
-      - 0.05      # ρ=0.40
-      - 0.05625   # ρ=0.45
-      - 0.0625    # ρ=0.50
-      - 0.06875   # ρ=0.55
-      - 0.075     # ρ=0.60
-      - 0.08125   # ρ=0.65
-      - 0.0875    # ρ=0.70
-      - 0.09375   # ρ=0.75
-      - 0.10      # ρ=0.80
-      - 0.10625   # ρ=0.85
-      - 0.1125    # ρ=0.90
-      - 0.11875   # ρ=0.95
+    x_values: *lamgrid
 
   - label: "DF"
     fixed: { policy: "df" }
-    x_values: *lambda_grid
+    x_values: *lamgrid
 
   - label: "CEDF"
     fixed: { policy: "cedf" }
-    x_values: *lambda_grid
+    x_values: *lamgrid

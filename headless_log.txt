@@ -1,4 +1,4 @@
 [Headless] start
-params: mu=1.25, e=2.4, C=300, lambda=0.11875, T=1000010, seed=12350, N=10, rtx=1, slots=0, alwaysCharge=1, Q=10, tau=0.54, policy=rr, out=Paper2/Fig6/out/CEDF__lambda0.11875__r5_f43f80ea.csv, version=BaseStation
-distance_policy: useD=0, dDist=, dP1=0, dP2=0, dseed=67895, pt=1, alpha=1, rBase=-1
+params: mu=1.6, e=1.98873, C=2, lambda=0.9, T=1000010, seed=12348, N=1, rtx=1, slots=0, alwaysCharge=1, Q=100000, tau=0, policy=rr, out=Paper1/Fig7/out/£g1.6__e1.9887266703__r3_a8607aad.csv, version=BaseStation
+distance_policy: useD=0, dDist=, dP1=0, dP2=0, dseed=67893, pt=1, alpha=1, rBase=-1
 [Headless] done, rc=0
