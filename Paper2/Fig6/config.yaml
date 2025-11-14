@@ -1,7 +1,7 @@
 figure:
   paper: "Paper2"
   id: "Fig6"
-  title: "Loss rate vs system load ρ (N=10, μ=1.25, C=300, Q=10, τ=0.54)"
+  title: "Loss rate vs system load ρ (N=10, μ=1.25, C=300, Q=10, τ=0.4)"
   x_var: "lambda"
   y_metric: "loss_rate"
   ylabel: "Loss rate"
@@ -21,9 +21,9 @@ sim:
     N: 10
     C: 300
     mu: 1.25
-    e: 2.4
+    e: 1.0
     Q: 10
-    tau: 0.54
+    tau: 4
     rtx: 1
     slots: 0
     alwaysCharge: true
@@ -35,8 +35,8 @@ sim:
     dP1: 0.0
     dP2: 0.6
     dseed: 2025
-    pt: 1.0
-    alpha: 1.0
+    pt: 1000.0
+    alpha: 2.0
 
 lambda_grid: &lamgrid
   - 0.0125
