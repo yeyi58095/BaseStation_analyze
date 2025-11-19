@@ -23,10 +23,10 @@ sim:
     mu: 1.25
     e: 1.0
     Q: 10
-    tau: 4
+    tau: 0.4
     rtx: 1
     slots: 0
-    alwaysCharge: true
+    alwaysCharge: false
     version: "BaseStation"
 
     # —— 讓策略差異出得來：打開距離異質 —— 

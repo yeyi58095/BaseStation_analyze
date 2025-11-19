@@ -1,0 +1,18 @@
+# Sensor configuration debug dump
+# lambda = 0.05, mu = 1.25, C = 100, Q_max = 10
+# useD = 1, dmode = uniform, pt = 1, alpha = 1, tau = 0.4, policy = 0
+
+Sensor 0:
+  txCostBase (r_i) = 2
+  charge_rate (e_i) = 0.965525
+  E_cap = 100
+  Q_max = 10
+  r_tx = 1
+
+Sensor 1:
+  txCostBase (r_i) = 17
+  charge_rate (e_i) = 0.248986
+  E_cap = 100
+  Q_max = 10
+  r_tx = 1
+
